@@ -1,7 +1,7 @@
 // Anima - Profile Screen v2.0
-// Glassmorphic profile experience with immersive header
+// Glassmorphic profile experience with real Firebase data
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,62 +12,41 @@ import {
   StatusBar,
   Animated,
   Platform,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import {
   Avatar,
   GlassButton,
   GlassCard,
   ContentCard,
-  GuestPrompt,
 } from '../../components/glass-ui';
 import { useUserStore } from '../../store';
 import { CommonActions, useNavigation } from '@react-navigation/native';
-import { COLORS, LAYOUT, TYPOGRAPHY, SPACING, EFFECTS } from '../../theme/designSystem';
+import { COLORS, LAYOUT, TYPOGRAPHY, SPACING } from '../../theme/designSystem';
+import {
+  fetchUserPosts,
+  fetchUserReplies,
+  fetchUserMediaPosts,
+  fetchUserLikes,
+  getUserFavoriteAnime,
+} from '../../services/ProfileService';
+import { Quest } from '../../types';
+import { DocumentSnapshot } from 'firebase/firestore';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const HEADER_MAX_HEIGHT = 280;
 const HEADER_MIN_HEIGHT = 100;
 const HEADER_SCROLL_DISTANCE = HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT;
 
-// Mock user data
-const MOCK_USER = {
-  id: '1',
-  username: 'anime_protagonist',
-  displayName: 'Anime Protagonist',
-  bio: 'Living my best isekai life. Currently watching: Everything.',
-  avatarUrl: 'https://picsum.photos/200?random=99',
-  bannerUrl: 'https://picsum.photos/800/400?random=98',
-  followers: 12400,
-  following: 420,
-  posts: 89,
-  isPremium: true,
-  joinedDate: new Date('2023-01-15'),
-  favoriteAnime: ['Attack on Titan', 'Demon Slayer', 'Jujutsu Kaisen'],
-};
-
-// Mock posts
-const MOCK_POSTS = [
-  {
-    id: '1',
-    content: 'Just finished Attack on Titan. My emotions are destroyed. 😭',
-    likes: 234,
-    comments: 45,
-    shares: 12,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
-  },
-  {
-    id: '2',
-    content: 'Hot take: Demon Slayer animation is peak. No other studio comes close.',
-    likes: 567,
-    comments: 89,
-    shares: 34,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
-  },
-];
+// Default avatar and banner
+const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=User&background=8B5CF6&color=fff&size=200';
+const DEFAULT_BANNER = 'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=800&q=80';
 
 // Stats Component
 const StatItem: React.FC<{
@@ -131,6 +110,21 @@ const AnimeTag: React.FC<{ name: string }> = ({ name }) => (
   </View>
 );
 
+// Empty State
+const EmptyState: React.FC<{ message: string; icon?: string }> = ({ message, icon = 'document-text-outline' }) => (
+  <View style={styles.emptyState}>
+    <Ionicons name={icon as any} size={48} color={COLORS.text.tertiary} />
+    <Text style={styles.emptyText}>{message}</Text>
+  </View>
+);
+
+// Loading State
+const LoadingState: React.FC = () => (
+  <View style={styles.loadingContainer}>
+    <ActivityIndicator size="large" color={COLORS.accent.primary} />
+  </View>
+);
+
 // Guest Profile Screen
 const GuestProfileScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
@@ -156,7 +150,6 @@ const GuestProfileScreen: React.FC = () => {
       />
 
       <View style={[styles.guestContainer, { paddingTop: insets.top + SPACING[8] }]}>
-        {/* Icon */}
         <View style={styles.guestIconContainer}>
           <View style={styles.guestIconCircle}>
             <View style={styles.guestIconPerson} />
@@ -164,33 +157,30 @@ const GuestProfileScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Text */}
         <Text style={styles.guestTitle}>Your Profile</Text>
         <Text style={styles.guestSubtitle}>
           Create an account to build your anime profile, track your watch history, and connect with fans.
         </Text>
 
-        {/* Features */}
         <GlassCard variant="light" style={styles.guestFeatures}>
           <View style={styles.guestFeatureRow}>
-            <View style={styles.guestFeatureIcon} />
+            <Ionicons name="checkmark-circle" size={24} color={COLORS.accent.success} />
             <Text style={styles.guestFeatureText}>Track your anime watch list</Text>
           </View>
           <View style={styles.guestFeatureRow}>
-            <View style={styles.guestFeatureIcon} />
+            <Ionicons name="checkmark-circle" size={24} color={COLORS.accent.success} />
             <Text style={styles.guestFeatureText}>Share your thoughts and hot takes</Text>
           </View>
           <View style={styles.guestFeatureRow}>
-            <View style={styles.guestFeatureIcon} />
+            <Ionicons name="checkmark-circle" size={24} color={COLORS.accent.success} />
             <Text style={styles.guestFeatureText}>Follow friends and creators</Text>
           </View>
           <View style={styles.guestFeatureRow}>
-            <View style={styles.guestFeatureIcon} />
+            <Ionicons name="checkmark-circle" size={24} color={COLORS.accent.success} />
             <Text style={styles.guestFeatureText}>Level up and earn badges</Text>
           </View>
         </GlassCard>
 
-        {/* CTA */}
         <GlassButton
           title="Create Account"
           onPress={handleSignUp}
@@ -210,17 +200,232 @@ const GuestProfileScreen: React.FC = () => {
 
 export const ProfileScreenV2: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const { user: currentUser, isGuest } = useUserStore();
+  const navigation = useNavigation();
+  const { user, isGuest, logout } = useUserStore();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [activeTab, setActiveTab] = useState('posts');
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Posts state
+  const [posts, setPosts] = useState<Quest[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [postsLastDoc, setPostsLastDoc] = useState<DocumentSnapshot | null>(null);
+  const [postsHasMore, setPostsHasMore] = useState(true);
+
+  // Replies state
+  const [replies, setReplies] = useState<Quest[]>([]);
+  const [repliesLoading, setRepliesLoading] = useState(false);
+  const [repliesLastDoc, setRepliesLastDoc] = useState<DocumentSnapshot | null>(null);
+
+  // Media posts state
+  const [mediaPosts, setMediaPosts] = useState<Quest[]>([]);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaLastDoc, setMediaLastDoc] = useState<DocumentSnapshot | null>(null);
+
+  // Likes state
+  const [likes, setLikes] = useState<Quest[]>([]);
+  const [likesLoading, setLikesLoading] = useState(false);
+  const [likesLastDoc, setLikesLastDoc] = useState<DocumentSnapshot | null>(null);
+
+  // Favorite anime
+  const [favoriteAnime, setFavoriteAnime] = useState<string[]>([]);
 
   // Show guest profile screen if user is a guest
   if (isGuest) {
     return <GuestProfileScreen />;
   }
 
-  const user = currentUser || MOCK_USER;
-  const isOwnProfile = true; // currentUser?.id === user.id
+  // If no user, show loading
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" />
+        <LinearGradient
+          colors={[COLORS.background.secondary, COLORS.background.primary]}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <LoadingState />
+      </View>
+    );
+  }
+
+  // Fetch user posts
+  const loadPosts = useCallback(async (refresh = false) => {
+    if (!user) return;
+
+    if (refresh) {
+      setPostsLoading(true);
+    }
+
+    try {
+      const result = await fetchUserPosts(
+        user.id,
+        refresh ? undefined : postsLastDoc || undefined
+      );
+
+      if (refresh) {
+        setPosts(result.posts);
+      } else {
+        setPosts((prev) => [...prev, ...result.posts]);
+      }
+      setPostsLastDoc(result.lastDoc);
+      setPostsHasMore(result.hasMore);
+    } catch (error) {
+      console.error('Failed to load posts:', error);
+    } finally {
+      setPostsLoading(false);
+    }
+  }, [user, postsLastDoc]);
+
+  // Fetch replies
+  const loadReplies = useCallback(async (refresh = false) => {
+    if (!user) return;
+
+    setRepliesLoading(true);
+
+    try {
+      const result = await fetchUserReplies(
+        user.id,
+        refresh ? undefined : repliesLastDoc || undefined
+      );
+
+      if (refresh) {
+        setReplies(result.replies);
+      } else {
+        setReplies((prev) => [...prev, ...result.replies]);
+      }
+      setRepliesLastDoc(result.lastDoc);
+    } catch (error) {
+      console.error('Failed to load replies:', error);
+    } finally {
+      setRepliesLoading(false);
+    }
+  }, [user, repliesLastDoc]);
+
+  // Fetch media posts
+  const loadMediaPosts = useCallback(async (refresh = false) => {
+    if (!user) return;
+
+    setMediaLoading(true);
+
+    try {
+      const result = await fetchUserMediaPosts(
+        user.id,
+        refresh ? undefined : mediaLastDoc || undefined
+      );
+
+      if (refresh) {
+        setMediaPosts(result.posts);
+      } else {
+        setMediaPosts((prev) => [...prev, ...result.posts]);
+      }
+      setMediaLastDoc(result.lastDoc);
+    } catch (error) {
+      console.error('Failed to load media posts:', error);
+    } finally {
+      setMediaLoading(false);
+    }
+  }, [user, mediaLastDoc]);
+
+  // Fetch likes
+  const loadLikes = useCallback(async (refresh = false) => {
+    if (!user) return;
+
+    setLikesLoading(true);
+
+    try {
+      const result = await fetchUserLikes(
+        user.id,
+        refresh ? undefined : likesLastDoc || undefined
+      );
+
+      if (refresh) {
+        setLikes(result.posts);
+      } else {
+        setLikes((prev) => [...prev, ...result.posts]);
+      }
+      setLikesLastDoc(result.lastDoc);
+    } catch (error) {
+      console.error('Failed to load likes:', error);
+    } finally {
+      setLikesLoading(false);
+    }
+  }, [user, likesLastDoc]);
+
+  // Fetch favorite anime
+  const loadFavoriteAnime = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      const anime = await getUserFavoriteAnime(user.id);
+      setFavoriteAnime(anime);
+    } catch (error) {
+      console.error('Failed to load favorite anime:', error);
+    }
+  }, [user]);
+
+  // Initial load
+  useEffect(() => {
+    if (user) {
+      loadPosts(true);
+      loadFavoriteAnime();
+    }
+  }, [user?.id]);
+
+  // Load data when tab changes
+  useEffect(() => {
+    if (!user) return;
+
+    switch (activeTab) {
+      case 'posts':
+        if (posts.length === 0) loadPosts(true);
+        break;
+      case 'replies':
+        if (replies.length === 0) loadReplies(true);
+        break;
+      case 'media':
+        if (mediaPosts.length === 0) loadMediaPosts(true);
+        break;
+      case 'likes':
+        if (likes.length === 0) loadLikes(true);
+        break;
+    }
+  }, [activeTab, user?.id]);
+
+  // Handle refresh
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+
+    switch (activeTab) {
+      case 'posts':
+        await loadPosts(true);
+        break;
+      case 'replies':
+        await loadReplies(true);
+        break;
+      case 'media':
+        await loadMediaPosts(true);
+        break;
+      case 'likes':
+        await loadLikes(true);
+        break;
+    }
+
+    setRefreshing(false);
+  }, [activeTab, loadPosts, loadReplies, loadMediaPosts, loadLikes]);
+
+  // Handle logout
+  const handleLogout = async () => {
+    await logout();
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: 'Auth' as never }],
+      })
+    );
+  };
+
+  const isOwnProfile = true;
 
   // Animated header effects
   const headerHeight = scrollY.interpolate({
@@ -253,6 +458,124 @@ export const ProfileScreenV2: React.FC = () => {
     extrapolate: 'clamp',
   });
 
+  // Get current tab content
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'posts':
+        if (postsLoading && posts.length === 0) {
+          return <LoadingState />;
+        }
+        if (posts.length === 0) {
+          return <EmptyState message="No posts yet" icon="chatbubble-outline" />;
+        }
+        return posts.map((post) => (
+          <ContentCard
+            key={post.id}
+            id={post.id}
+            author={{
+              id: user.id,
+              username: user.username,
+              displayName: user.displayName,
+              avatarUrl: user.avatarUrl,
+              isPremium: user.powerLevel >= 20,
+            }}
+            content={post.content}
+            createdAt={post.createdAt}
+            likes={post.likes}
+            comments={post.replies}
+            shares={post.reposts}
+            mediaAttachment={post.mediaAttachment}
+          />
+        ));
+
+      case 'replies':
+        if (repliesLoading && replies.length === 0) {
+          return <LoadingState />;
+        }
+        if (replies.length === 0) {
+          return <EmptyState message="No replies yet" icon="chatbubbles-outline" />;
+        }
+        return replies.map((reply) => (
+          <ContentCard
+            key={reply.id}
+            id={reply.id}
+            author={{
+              id: user.id,
+              username: user.username,
+              displayName: user.displayName,
+              avatarUrl: user.avatarUrl,
+              isPremium: user.powerLevel >= 20,
+            }}
+            content={reply.content}
+            createdAt={reply.createdAt}
+            likes={reply.likes}
+            comments={reply.replies}
+            shares={reply.reposts}
+          />
+        ));
+
+      case 'media':
+        if (mediaLoading && mediaPosts.length === 0) {
+          return <LoadingState />;
+        }
+        if (mediaPosts.length === 0) {
+          return <EmptyState message="No media posts yet" icon="images-outline" />;
+        }
+        return mediaPosts.map((post) => (
+          <ContentCard
+            key={post.id}
+            id={post.id}
+            author={{
+              id: user.id,
+              username: user.username,
+              displayName: user.displayName,
+              avatarUrl: user.avatarUrl,
+              isPremium: user.powerLevel >= 20,
+            }}
+            content={post.content}
+            createdAt={post.createdAt}
+            likes={post.likes}
+            comments={post.replies}
+            shares={post.reposts}
+            mediaAttachment={post.mediaAttachment}
+          />
+        ));
+
+      case 'likes':
+        if (likesLoading && likes.length === 0) {
+          return <LoadingState />;
+        }
+        if (likes.length === 0) {
+          return <EmptyState message="No liked posts yet" icon="heart-outline" />;
+        }
+        return likes.map((post) => (
+          <ContentCard
+            key={post.id}
+            id={post.id}
+            author={{
+              id: post.author.id,
+              username: post.author.username,
+              displayName: post.author.displayName,
+              avatarUrl: post.author.avatarUrl,
+              isPremium: post.author.powerLevel >= 20,
+            }}
+            content={post.content}
+            createdAt={post.createdAt}
+            likes={post.likes}
+            comments={post.replies}
+            shares={post.reposts}
+            mediaAttachment={post.mediaAttachment}
+          />
+        ));
+
+      default:
+        return null;
+    }
+  };
+
+  // Calculate isPremium based on power level
+  const isPremium = user.powerLevel >= 20;
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -262,7 +585,7 @@ export const ProfileScreenV2: React.FC = () => {
         {/* Banner Image */}
         <Animated.View style={[styles.bannerContainer, { opacity: headerOpacity }]}>
           <Image
-            source={{ uri: user.bannerUrl || MOCK_USER.bannerUrl }}
+            source={{ uri: user.bannerUrl || DEFAULT_BANNER }}
             style={styles.bannerImage}
             contentFit="cover"
           />
@@ -284,7 +607,7 @@ export const ProfileScreenV2: React.FC = () => {
           ) : (
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: COLORS.glass.overlay }]} />
           )}
-          <Text style={styles.collapsedTitle}>{user.displayName || MOCK_USER.displayName}</Text>
+          <Text style={styles.collapsedTitle}>{user.displayName}</Text>
         </Animated.View>
 
         {/* Top Actions */}
@@ -292,14 +615,14 @@ export const ProfileScreenV2: React.FC = () => {
           {isOwnProfile ? (
             <GlassButton
               title="Settings"
-              onPress={() => {}}
+              onPress={handleLogout}
               variant="glass"
               size="small"
             />
           ) : (
             <GlassButton
               title="Back"
-              onPress={() => {}}
+              onPress={() => navigation.goBack()}
               variant="glass"
               size="small"
             />
@@ -320,6 +643,14 @@ export const ProfileScreenV2: React.FC = () => {
         )}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={COLORS.accent.primary}
+            progressViewOffset={HEADER_MAX_HEIGHT}
+          />
+        }
       >
         {/* Profile Info Card */}
         <View style={styles.profileCard}>
@@ -336,12 +667,12 @@ export const ProfileScreenV2: React.FC = () => {
             ]}
           >
             <Avatar
-              imageUrl={user.avatarUrl || MOCK_USER.avatarUrl}
+              imageUrl={user.avatarUrl || DEFAULT_AVATAR}
               size="2xl"
-              ring={user.isPremium || MOCK_USER.isPremium}
+              ring={isPremium}
               ringColor={COLORS.accent.primary}
             />
-            {(user.isPremium || MOCK_USER.isPremium) && (
+            {isPremium && (
               <View style={styles.premiumBadge}>
                 <Text style={styles.premiumText}>PRO</Text>
               </View>
@@ -350,27 +681,49 @@ export const ProfileScreenV2: React.FC = () => {
 
           {/* Name & Handle */}
           <View style={styles.nameSection}>
-            <Text style={styles.displayName}>{user.displayName || MOCK_USER.displayName}</Text>
-            <Text style={styles.username}>@{user.username || MOCK_USER.username}</Text>
+            <Text style={styles.displayName}>{user.displayName}</Text>
+            <Text style={styles.username}>@{user.username}</Text>
           </View>
 
           {/* Bio */}
-          <Text style={styles.bio}>{user.bio || MOCK_USER.bio}</Text>
+          {user.bio && (
+            <Text style={styles.bio}>{user.bio}</Text>
+          )}
+
+          {/* Power Level */}
+          <View style={styles.powerLevelContainer}>
+            <Ionicons name="flash" size={16} color={COLORS.accent.primary} />
+            <Text style={styles.powerLevelText}>Power Level: {user.powerLevel}</Text>
+            <Text style={styles.xpText}>{user.xp.toLocaleString()} XP</Text>
+          </View>
 
           {/* Favorite Anime */}
-          <View style={styles.favoriteAnime}>
-            {(MOCK_USER.favoriteAnime).map((anime, index) => (
-              <AnimeTag key={index} name={anime} />
-            ))}
-          </View>
+          {favoriteAnime.length > 0 && (
+            <View style={styles.favoriteAnime}>
+              {favoriteAnime.map((anime, index) => (
+                <AnimeTag key={index} name={anime} />
+              ))}
+            </View>
+          )}
 
           {/* Stats */}
           <View style={styles.statsRow}>
-            <StatItem label="Posts" value={MOCK_USER.posts} />
+            <StatItem
+              label="Posts"
+              value={user.stats?.postsCount || 0}
+            />
             <View style={styles.statDivider} />
-            <StatItem label="Followers" value={MOCK_USER.followers} onPress={() => {}} />
+            <StatItem
+              label="Followers"
+              value={user.stats?.followersCount || 0}
+              onPress={() => {}}
+            />
             <View style={styles.statDivider} />
-            <StatItem label="Following" value={MOCK_USER.following} onPress={() => {}} />
+            <StatItem
+              label="Following"
+              value={user.stats?.followingCount || 0}
+              onPress={() => {}}
+            />
           </View>
 
           {/* Action Buttons */}
@@ -404,26 +757,9 @@ export const ProfileScreenV2: React.FC = () => {
         {/* Tab Selector */}
         <TabSelector activeTab={activeTab} onTabChange={setActiveTab} />
 
-        {/* Posts */}
+        {/* Tab Content */}
         <View style={styles.postsContainer}>
-          {MOCK_POSTS.map((post) => (
-            <ContentCard
-              key={post.id}
-              id={post.id}
-              author={{
-                id: user.id || MOCK_USER.id,
-                username: user.username || MOCK_USER.username,
-                displayName: user.displayName || MOCK_USER.displayName,
-                avatarUrl: user.avatarUrl || MOCK_USER.avatarUrl,
-                isPremium: MOCK_USER.isPremium,
-              }}
-              content={post.content}
-              createdAt={post.createdAt}
-              likes={post.likes}
-              comments={post.comments}
-              shares={post.shares}
-            />
-          ))}
+          {renderTabContent()}
         </View>
 
         {/* Bottom Padding */}
@@ -540,6 +876,23 @@ const styles = StyleSheet.create({
     marginBottom: SPACING[3],
   },
 
+  // Power Level
+  powerLevelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING[2],
+    marginBottom: SPACING[3],
+  },
+  powerLevelText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    color: COLORS.accent.primary,
+  },
+  xpText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    color: COLORS.text.tertiary,
+  },
+
   // Favorite Anime
   favoriteAnime: {
     flexDirection: 'row',
@@ -633,6 +986,28 @@ const styles = StyleSheet.create({
   // Posts
   postsContainer: {
     backgroundColor: COLORS.background.primary,
+    minHeight: 200,
+  },
+
+  // Empty State
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING[12],
+    paddingHorizontal: SPACING[6],
+  },
+  emptyText: {
+    fontSize: TYPOGRAPHY.sizes.base,
+    color: COLORS.text.tertiary,
+    marginTop: SPACING[3],
+  },
+
+  // Loading
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING[12],
   },
 
   // Guest Profile
@@ -690,13 +1065,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: SPACING[4],
-  },
-  guestFeatureIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: COLORS.accent.success,
-    marginRight: SPACING[4],
+    gap: SPACING[4],
   },
   guestFeatureText: {
     fontSize: TYPOGRAPHY.sizes.base,

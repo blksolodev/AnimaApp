@@ -15,6 +15,7 @@ import { COLORS } from '../theme/designSystem';
 import { HomeScreenV2 } from '../screens/feed/HomeScreenV2';
 import { AiringTodayScreen } from '../screens/feed/AiringToday';
 import { SearchScreenV2 } from '../screens/discover/SearchScreenV2';
+import { AllAnimeScreen } from '../screens/discover/AllAnimeScreen';
 import { NotificationsScreenV2 } from '../screens/notifications/NotificationsScreenV2';
 import { ProfileScreenV2 } from '../screens/profile/ProfileScreenV2';
 import { GuildChatScreen } from '../screens/social/GuildChat';
@@ -70,6 +71,7 @@ export type HomeStackParamList = {
 
 export type SearchStackParamList = {
   Discover: undefined;
+  AllAnime: { category?: string; title?: string };
   AnimeDetail: { animeId: number; openProgress?: boolean };
   UserProfile: { userId: string };
 };
@@ -160,6 +162,7 @@ const SearchStackNavigator: React.FC = () => {
       }}
     >
       <SearchStack.Screen name="Discover" component={SearchScreenV2} />
+      <SearchStack.Screen name="AllAnime" component={AllAnimeScreen} />
       <SearchStack.Screen name="AnimeDetail" component={AnimeDetailScreen} />
     </SearchStack.Navigator>
   );

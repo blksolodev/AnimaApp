@@ -359,7 +359,7 @@ export const SearchScreenV2: React.FC = () => {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitleWithPadding}>Trending Now</Text>
-            <Pressable onPress={() => {}}>
+            <Pressable onPress={() => navigation.navigate('AllAnime', { title: 'Trending Anime' })}>
               <Text style={styles.seeAllText}>See All</Text>
             </Pressable>
           </View>
