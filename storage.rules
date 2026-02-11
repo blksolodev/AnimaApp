@@ -1,0 +1,40 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // User avatars - users can read all, write their own
+    match /avatars/{userId}/{fileName} {
+      allow read: if true; // Public read for profile pictures
+      allow write: if isAuthenticated() && request.auth.uid == userId
+                   && request.resource.size < 5 * 1024 * 1024 // Max 5MB
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // User banners - users can read all, write their own
+    match /banners/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.uid == userId
+                   && request.resource.size < 10 * 1024 * 1024 // Max 10MB
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Post media - authenticated users can upload
+    match /posts/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.uid == userId
+                   && request.resource.size < 20 * 1024 * 1024 // Max 20MB
+                   && (request.resource.contentType.matches('image/.*')
+                       || request.resource.contentType.matches('video/.*'));
+    }
+
+    // Default deny for everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
